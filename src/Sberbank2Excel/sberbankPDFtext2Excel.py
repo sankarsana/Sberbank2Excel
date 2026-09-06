@@ -131,7 +131,11 @@ def sberbankPDFtext2Excel(input_txt_file_name: str,
 
     df = utils.rename_sort_df(df = df,
                               columns_info=actual_extractor.get_columns_info())
-    
+
+    # Removing columns, which are used only in internal calculations (e.g. balance verification),
+    # but are not supposed to be written to the output file
+    df = df.drop(columns=actual_extractor.get_internal_columns(), errors='ignore')
+
     if reversed_transaction_order:
         df = df.iloc[::-1]  # reversing the order of transactions
 

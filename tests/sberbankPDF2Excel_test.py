@@ -1,9 +1,11 @@
 from pathlib import Path
 
 import pytest
+import pandas as pd
 
 from Sberbank2Excel import exceptions
 from Sberbank2Excel.sberbankPDF2Excel import sberbankPDF2Excel
+from Sberbank2Excel.extractor_SBER_PAYMENT_DEBIT_2604b import SBER_PAYMENT_DEBIT_2604b
 
 
 """
@@ -237,6 +239,121 @@ def test_correctly_converts_SBER_PAYMENT_DEBIT_2604b_payment_issue87():
 def test_correctly_converts_SBER_CREDIT_2605_issue87():
     from . import no_github_module
     sberbankPDF2Excel(no_github_module.path2_SBER_CREDIT_2605_issue87)
+
+
+class Test_SBER_PAYMENT_DEBIT_2604b:
+
+    ENTRY_INCOME_INTEGER = (
+        "05.09.2026\t19:27\tВнесение наличных\t+47 200,00\t75 661,14\n"
+        "05.09.2026\t164041\tATM 60005717 TVER RUS. Операция по карте ****4321"
+    )
+
+    ENTRY_INCOME_FRACTION = (
+        "31.08.2026\t19:34\tПеревод СБП\t+104,78\t36 720,14\n"
+        "31.08.2026\t499148\tПеревод из Alfa-Bank. Операция по карте ****4321"
+    )
+
+    ENTRY_EXPENSE_INTEGER = (
+        "04.09.2026\t22:20\tПеревод СБП\t1 000,00\t26 461,14\n"
+        "04.09.2026\t839553\tПеревод в T-Bank. Операция по карте ****4321"
+    )
+
+    ENTRY_EXPENSE_FRACTION = (
+        "04.09.2026\t12:04\tПеревод с карты\t600,60\t27 128,14\n"
+        "04.09.2026\t205945\tПеревод для Л. Михаил Игоревич. Операция по карте\n"
+        "****4321"
+    )
+
+    ENTRY_NAME_2_LINES = (
+        "04.09.2026\t12:04\tПеревод с карты\t600,00\t27 128,14\n"
+        "04.09.2026\t205945\tПеревод для К. Анна Павловна. Операция по карте ****4321"
+    )
+
+    ENTRY_NAME_3_LINES = (
+        "04.09.2026\t12:04\tПеревод с карты\t600,00\t27 128,14\n"
+        "04.09.2026\t205945\tПеревод для К. Анна Павловна. Операция по карте\n"
+        "****4321"
+    )
+
+    ENTRY_NO_NAME = (
+        "04.09.2026\t22:20\tПеревод СБП\t1 000,00\t26 461,14\n"
+        "04.09.2026\t839553\tПеревод в T-Bank. Операция по карте ****4321"
+    )
+
+    def _extractor(self) -> SBER_PAYMENT_DEBIT_2604b:
+        txt = (TEST_DATA / "_SBER_PAYMENT_DEBIT_2604b_anonymized_reduced.txt").read_text(encoding='utf-8')
+        return SBER_PAYMENT_DEBIT_2604b(txt)
+
+    def test_income_is_positive_integer(self):
+        result = self._extractor().decompose_entry_to_dict(self.ENTRY_INCOME_INTEGER)
+        assert result['income'] == 47200
+        assert result['expense'] is None
+
+    def test_income_fraction_rounded(self):
+        result = self._extractor().decompose_entry_to_dict(self.ENTRY_INCOME_FRACTION)
+        assert result['income'] == 105
+        assert result['expense'] is None
+
+    def test_expense_is_unsigned_integer(self):
+        result = self._extractor().decompose_entry_to_dict(self.ENTRY_EXPENSE_INTEGER)
+        assert result['expense'] == 1000
+        assert result['income'] is None
+
+    def test_expense_fraction_rounded(self):
+        result = self._extractor().decompose_entry_to_dict(self.ENTRY_EXPENSE_FRACTION)
+        assert result['expense'] == 601
+        assert result['income'] is None
+
+    def test_accounting_date_equals_operation_date(self):
+        result = self._extractor().decompose_entry_to_dict(self.ENTRY_INCOME_INTEGER)
+        assert result['accounting_date'] == result['operation_date'] == "05.09.2026"
+
+    def test_name_reordered(self):
+        result = self._extractor().decompose_entry_to_dict(self.ENTRY_NAME_2_LINES)
+        assert result['name'] == "Анна Павловна К."
+
+    def test_name_empty_when_no_person(self):
+        extractor = self._extractor()
+        result = extractor.decompose_entry_to_dict(self.ENTRY_NO_NAME)
+        assert result['name'] == ""
+
+    def test_name_from_multiline_description(self):
+        result = self._extractor().decompose_entry_to_dict(self.ENTRY_NAME_3_LINES)
+        assert result['name'] == "Анна Павловна К."
+
+    def test_columns_info_exact(self):
+        extractor = self._extractor()
+        expected = {'operation_date': 'Дата операции',
+                    'accounting_date': 'Дата учёта',
+                    'income': 'Приход',
+                    'expense': 'Расход',
+                    'name': 'Имя',
+                    'value_account_currency': 'value_account_currency'}
+        assert extractor.get_columns_info() == expected
+        assert list(extractor.get_columns_info().keys()) == list(expected.keys())
+
+    def test_balance_column_name(self):
+        assert self._extractor().get_column_name_for_balance_calculation() == 'value_account_currency'
+
+    def test_internal_columns(self):
+        assert self._extractor().get_internal_columns() == ['value_account_currency']
+
+    def test_correctly_converts_SBER_PAYMENT_DEBIT_2604b_txt_anonim(self):
+        sberbankPDF2Excel(str(TEST_DATA / "_SBER_PAYMENT_DEBIT_2604b_anonymized_reduced.txt"))
+
+    def test_output_file_has_exact_five_columns(self):
+        output_stem = sberbankPDF2Excel(
+            str(TEST_DATA / "_SBER_PAYMENT_DEBIT_2604b_anonymized_reduced.txt"))
+        df = pd.read_excel(output_stem + ".xlsx")
+
+        assert list(df.columns) == ['Дата операции', 'Дата учёта', 'Приход', 'Расход', 'Имя']
+
+        first = df.iloc[0]
+        assert first['Дата операции'] == '05.09.2026'
+        assert first['Дата учёта'] == '05.09.2026'
+        assert first['Приход'] == 47200
+        assert pd.isna(first['Расход'])  # empty cell when the entry is income
+
 
 if __name__ == "__main__":
     print("Running tests")

@@ -130,7 +130,7 @@ label_type_file_select = Label(frame, text="Шаг 2. Сконвертируйт
 
 type_files = ("xlsx", "csv")
 output_file_type = StringVar()
-output_file_type.set(type_files[0])
+output_file_type.set(type_files[1])  # fork: CSV выбран по умолчанию
 combobox = ttk.Combobox(frame, textvariable=output_file_type, state="readonly", values=type_files)
 
 label_type_file_select.pack(side="left", padx=5, pady=5)
@@ -150,6 +150,7 @@ no_balance_check = IntVar()
 Checkbutton(window, text="Игнорировать результаты сверки баланса по трансакциям и в шапке выписки", variable=no_balance_check).grid(row=11, sticky=W)
 
 reversed_transaction_order = IntVar()
+reversed_transaction_order.set(1)  # fork: обратный порядок отмечен по умолчанию
 Checkbutton(window, text="Изменить порядок трансакций на обратный", variable=reversed_transaction_order).grid(row=12, sticky=W)
 
 def main():

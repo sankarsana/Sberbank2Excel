@@ -66,6 +66,12 @@ class Extractor(ABC):
         The keys in dictionary shall correspond to keys of the result of the function self.decompose_entry_to_dict()
         """
 
+    def get_internal_columns(self) -> list[str]:
+        """Columns, which are used in internal calculations (e.g. balance verification),
+        but are not supposed to be written to the output file
+        """
+        return []
+
     def check_support(self)->bool:
         """Function checks if the text is supported by the extractor
         

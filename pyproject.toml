@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # ─────────────────────────────
 [project]
 name            = "Sberbank2Excel"
-version         = "5.4.0"
+version         = "5.4.1"
 description     = "Конвертация выписки сбербанка по карте из формата PDF в формат Excel"
 readme          = {file = "README.md", content-type = "text/markdown"}
 requires-python = "==3.12.*" # I have not tested with other versions
@@ -32,7 +32,8 @@ dependencies = [
 # For development
 dev = [
     "pytest",
-    "pyinstaller"
+    "pyinstaller",
+    "openpyxl"
 ]
 
 [project.urls]

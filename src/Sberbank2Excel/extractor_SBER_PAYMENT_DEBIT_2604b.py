@@ -19,7 +19,7 @@
 import re
 from datetime import datetime
 import sys
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from typing import Any
 
@@ -191,7 +191,7 @@ class SBER_PAYMENT_DEBIT_2604b(Extractor):
         ****6118
         ----------------------------------------------------------------------------------------------------------
 
-        """
+"""
         lines = entry.split('\n')
         lines = list(filter(None, lines))
 
@@ -203,15 +203,17 @@ class SBER_PAYMENT_DEBIT_2604b(Extractor):
         # ************** looking at the 1st line
         line_parts = split_Sberbank_line(lines[0])
 
-        result['operation_date'] = line_parts[0] + " " + line_parts[1]
-        # https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior
-        result['operation_date'] = datetime.strptime(result['operation_date'], '%d.%m.%Y %H:%M')
-        
-        # result['authorisation_code'] = line_parts[2]
+        operation_date = line_parts[0]
+        # validating date format, keeping it as a string to guarantee 'dd.mm.yyyy' in the output file
+        datetime.strptime(operation_date, '%d.%m.%Y')
 
-        result['category'] = line_parts[2]
-        result['value_account_currency'] = get_decimal_from_money(line_parts[3], True)
-        result['remainder_account_currency'] = get_decimal_from_money(line_parts[4])
+        value = get_decimal_from_money(line_parts[3], True)
+
+        result['operation_date'] = operation_date
+        result['accounting_date'] = operation_date
+        result['value_account_currency'] = value
+        result['income'] = self._to_integer(value) if value > 0 else None
+        result['expense'] = self._to_integer(-value) if value < 0 else None
 
         # ************** looking at the 2nd line
         line_parts = split_Sberbank_line(lines[1])
@@ -220,40 +222,39 @@ class SBER_PAYMENT_DEBIT_2604b(Extractor):
             raise exceptions.Bank2ExcelError(
                 "Line 2 is expected to have 3 or 4 parts :\n" + str(lines[1]))
 
-        result['processing_date'] = line_parts[0]
-        # https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior
-        result['processing_date'] = datetime.strptime(result['processing_date'], '%d.%m.%Y').date()
+        description = line_parts[2]
 
-        result['authorisation_code'] = line_parts[1]
-
-        result['description'] = line_parts[2]
-
-        # Выделяем сумму в валюте оперции, если присуиствует
-        if len(line_parts) == 4:
-            found = re.search(r'(.*?)\s(\S*)',
-                              line_parts[3])  # processing string like '6,79 €'
-            if found:
-                result['value_operational_currency'] = get_decimal_from_money(found.group(1))
-                result['operational_currency'] = found.group(2)
-            else:
-                raise exceptions.InputFileStructureError(
-                    "Ошибка в обработке текста. Ожидалась струтура типа '4,00 BYN', получено: " +
-                    line_parts[3])
-
-        # ************** looking at the 3rd line
+        # ************** looking at the 3rd line (continuation of description)
         if len(lines) >= 3:
             line_parts = split_Sberbank_line(lines[2])
-            result['description'] = result['description'] + ' ' + line_parts[0]
-            
-            
-        # ************** looking at the 4th line
+            description = description + ' ' + line_parts[0]
+
+        # ************** looking at the 4th line (continuation of description)
         if len(lines) == 4:
             line_parts = split_Sberbank_line(lines[3])
-            result['description'] = result['description'] + ' ' + line_parts[0]
+            description = description + ' ' + line_parts[0]
 
-        # print(result)
+        result['name'] = self._extract_name(description)
 
         return result
+
+    @staticmethod
+    def _to_integer(value: Decimal) -> int:
+        """Rounds a Decimal to an integer, using 'round half up' rounding"""
+        return int(value.to_integral_value(rounding=ROUND_HALF_UP))
+
+    @staticmethod
+    def _extract_name(description: str) -> str:
+        """Extracts the counterparty name from descriptions of the form
+        'Перевод для/от К. Анна Павловна. ...' and reorders it to
+        'Анна Павловна К.'. Returns an empty string if no name is present.
+        """
+        match = re.search(
+            r"Перевод\s+(?:для|от)\s+([А-ЯЁа-яё]\.)\s+([А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)*)\.",
+            description)
+        if match:
+            return f"{match.group(2)} {match.group(1)}"
+        return ""
 
     def get_column_name_for_balance_calculation(self)->str:
         """
@@ -262,21 +263,23 @@ class SBER_PAYMENT_DEBIT_2604b(Extractor):
         """
         return 'value_account_currency'
 
+    def get_internal_columns(self) -> list[str]:
+        """Columns, which are used in internal calculations (e.g. balance verification),
+        but are not supposed to be written to the output file
+        """
+        return ['value_account_currency']
+
     def get_columns_info(self)->dict:
         """
         Returns full column names in the order and in the form they shall appear in Excel
         The keys in dictionary shall correspond to keys of the result of the function self.decompose_entry_to_dict()
         """
-        return {'operation_date': 'ДАТА ОПЕРАЦИИ (МСК)',
-                'processing_date': 'Дата обработки',
-                'authorisation_code': 'Код авторизации',
-                'description': 'Описание операции',
-                'category': 'КАТЕГОРИЯ',
-                'value_account_currency': 'СУММА В ВАЛЮТЕ СЧЁТА',
-                'value_operational_currency': 'Сумма в валюте операции',
-                'operational_currency': 'Валюта операции',
-                'remainder_account_currency': 'ОСТАТОК СРЕДСТВ В ВАЛЮТЕ СЧЁТА'
-                }
+        return {'operation_date': 'Дата операции',
+                'accounting_date': 'Дата учёта',
+                'income': 'Приход',
+                'expense': 'Расход',
+                'name': 'Имя',
+                'value_account_currency': 'value_account_currency'}
 
 
 if __name__ == '__main__':
